@@ -1,0 +1,366 @@
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(scales)
+
+PCC_Combine_CTRP1 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/PCC_Combine_CTRP1.csv",header=TRUE)
+PCC_Combine_CTRP2 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/PCC_Combine_CTRP2.csv",header=TRUE)
+PCC_Combine_GDSC1 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/PCC_Combine_GDSC1.csv",header=TRUE)
+PCC_Combine_GDSC2 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/PCC_Combine_GDSC2.csv",header=TRUE)
+
+PCC_Combine_CTRP1 <- data.frame(method=PCC_Combine_CTRP1$method,drug=PCC_Combine_CTRP1$drug,variable="PCC",value=PCC_Combine_CTRP1$PCC_CV28,dataset="CTRP1")
+PCC_Combine_CTRP2 <- data.frame(method=PCC_Combine_CTRP2$method,drug=PCC_Combine_CTRP2$drug,variable="PCC",value=PCC_Combine_CTRP2$PCC_CV28,dataset="CTRP2")
+PCC_Combine_GDSC1 <- data.frame(method=PCC_Combine_GDSC1$method,drug=PCC_Combine_GDSC1$drug,variable="PCC",value=PCC_Combine_GDSC1$PCC_CV28,dataset="GDSC1")
+PCC_Combine_GDSC2 <- data.frame(method=PCC_Combine_GDSC2$method,drug=PCC_Combine_GDSC2$drug,variable="PCC",value=PCC_Combine_GDSC2$PCC_CV28,dataset="GDSC2")
+
+pcc <- rbind(PCC_Combine_CTRP1,PCC_Combine_CTRP2,PCC_Combine_GDSC1,PCC_Combine_GDSC2)
+
+Stats_Combine_CTRP1 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/Stats_Combine_CTRP1.csv",header=TRUE)
+Stats_Combine_CTRP2 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/Stats_Combine_CTRP2.csv",header=TRUE)
+Stats_Combine_GDSC1 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/Stats_Combine_GDSC1.csv",header=TRUE)
+Stats_Combine_GDSC2 <- read.csv("C:/Users/EYC/Downloads/drive-download-20211127T042527Z-001/Stats_Combine_GDSC2.csv",header=TRUE)
+
+Stats_Combine_CTRP1 <- melt(as.data.frame(Stats_Combine_CTRP1[-1]), id=c("method","drug"))
+Stats_Combine_CTRP2 <- melt(as.data.frame(Stats_Combine_CTRP2[-1]), id=c("method","drug"))
+Stats_Combine_GDSC1 <- melt(as.data.frame(Stats_Combine_GDSC1[-1]), id=c("method","drug"))
+Stats_Combine_GDSC2 <- melt(as.data.frame(Stats_Combine_GDSC2[-1]), id=c("method","drug"))
+
+Stats_Combine_CTRP1$dataset="CTRP1"
+Stats_Combine_CTRP2$dataset="CTRP2"
+Stats_Combine_GDSC1$dataset="GDSC1"
+Stats_Combine_GDSC2$dataset="GDSC2"
+
+stat <- rbind(Stats_Combine_CTRP1,Stats_Combine_CTRP2,Stats_Combine_GDSC1,Stats_Combine_GDSC2)
+data = rbind(stat,pcc)
+#data <- data[data$value<=2 & data$value>=-0.3,] 
+
+
+data <- data %>%
+  mutate(flag = ifelse(method %in% c("rfG","rfinv1","rfinv2","rfinv3"), TRUE, FALSE),
+         method_col = if_else(flag == TRUE, "1. RF family", "2. Others"))
+
+vline <- data[!is.na(data$variable),] %>%
+  group_by(variable) %>%
+  summarise(mean=mean(value))
+
+
+library(ggridges)
+library(ggplot2)
+
+data[!is.na(data$variable),] %>%
+  arrange(value) %>%
+  mutate(method = factor(method, levels=c("rfG","rfinv1","rfinv2",
+                                          "rfinv3","rf","EN","ENglm","GR","KKNN","KNN","Lasso","pcr","pls","ranger","ridgeglm","svm","svmLinear2","treebag"))) %>%
+ggplot(aes(x = value, y = method, fill = method,color=method_col)) +scale_y_discrete(limits=rev)+
+  geom_density_ridges(quantile_lines = TRUE, alpha = 0.75,na.rm = TRUE,
+                      quantiles = 2,size = 1)+facet_grid(~ variable+dataset,scales = "free")+#xlim(c(-1,3))
+  geom_vline(data = vline, aes(xintercept = mean),linetype = "dashed",size=0.8)+
+scale_color_manual(values = c("#F70020","#072C8F"))
+
+
+####################
+# Scale by dataset and variable(stat parameter)
+####################
+data_scaled <- data[!is.na(as.double(data$value)),]
+
+data_scaled$value <- ifelse(data_scaled$variable%in%c("Stats.RMSE","Stats.MAE"), -data_scaled$value , data_scaled$value)
+
+data_filter <- data_scaled[data_scaled$method %in%c("rfG","rfinv2","EN","GR","KKNN","KNN",
+                                        "Lasso","pcr","pls","ridgeglm","svm"),] %>%
+  group_by(dataset,variable) %>% 
+  filter(between(value, quantile(value, 0.25), quantile(value, 0.75)))%>%
+  mutate(value_scaled = scale(value)) 
+
+
+
+stat_scaled<- data_filter%>%
+  group_by(dataset,variable,method) %>% 
+  summarise(stat.mean=mean(as.double(value_scaled)),stat.sd=-sd(as.double(value_scaled)))
+
+
+
+
+data_filter%>%
+  ggplot(aes(x = value_scaled, y = method, fill = method,color=method_col)) +scale_y_discrete(limits=rev)+
+  geom_density_ridges(quantile_lines = TRUE, alpha = 0.75,na.rm = TRUE,
+                      quantiles = 2,size = 1)+facet_grid(~ variable+dataset,scales = "free")+#xlim(c(-1,3))
+  scale_color_manual(values = c("#F70020","#072C8F"))
+
+
+
+ggplot(stat_scaled, aes(variable, forcats::fct_rev(method), fill = stat.mean, size = stat.sd)) +
+  geom_point(shape = 21, stroke = 0) +
+#  geom_hline(yintercept = seq(.5, 4.5, 1), size = .2) +
+  scale_x_discrete(position = "bottom") +
+  scale_radius(range = c(0, 20)) +
+  scale_fill_gradient(low = "blue", high = "red",breaks = c(-0.1, 0, 0.1), labels = c("Bad", "OK", "Great"), ) +
+  theme(legend.position = "bottom", 
+        panel.grid.major = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8)) +
+  guides(size = guide_legend(override.aes = list(fill = NA, color = "black", stroke = .25), 
+                             label.position = "bottom",
+                             title.position = "right", 
+                             order = 1),
+         fill = guide_colorbar(ticks.colour = NA, title.position = "top", order = 2)) +
+  labs(size = "Area = Time Spent", fill = "Score:", x = NULL, y = NULL)+facet_grid(~ dataset,scales = "free")
+
+
+
+stat_scaled2<- data_filter%>%
+  group_by(variable,method) %>% 
+  summarise(stat.mean=mean(as.double(value_scaled)),stat.sd=-sd(as.double(value_scaled)))
+
+ggplot(stat_scaled2, aes(variable, forcats::fct_rev(method), fill = stat.mean, size = stat.sd)) +
+  geom_point(shape = 21, stroke = 0) +
+  #  geom_hline(yintercept = seq(.5, 4.5, 1), size = .2) +
+  scale_x_discrete(position = "bottom") +
+  scale_radius(range = c(0, 20)) +
+  scale_fill_gradient(low = "blue", high = "red",breaks = c(-0.1, 0, 0.1), labels = c("Bad", "OK", "Great"), ) +
+  theme(legend.position = "bottom", 
+        panel.grid.major = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8)) +
+  guides(size = guide_legend(override.aes = list(fill = NA, color = "black", stroke = .25), 
+                             label.position = "bottom",
+                             title.position = "right", 
+                             order = 1),
+         fill = guide_colorbar(ticks.colour = NA, title.position = "top", order = 2)) +
+  labs(size = "Area = Time Spent", fill = "Score:", x = NULL, y = NULL)
+
+
+
+
+ggplot(stat_scaled, aes(x = variable, y = method)) + 
+  geom_point(aes(size = stat.sd, fill = stat.mean), alpha = 0.75, shape = 21) + 
+  scale_radius(range = c(0, 20)) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  scale_size_continuous(limits = c(-1.05, -0.8), range = c(1,17) ) + 
+  labs( x= "", y = "", size = "Relative Abundance (%)", fill = "")  + 
+  theme(legend.key=element_blank(), 
+        axis.text.x = element_text(colour = "black", size = 12, face = "bold", angle = 90, vjust = 0.3, hjust = 1), 
+        axis.text.y = element_text(colour = "black", face = "bold", size = 11), 
+        legend.text = element_text(size = 10, face ="bold", colour ="black"), 
+        legend.title = element_text(size = 12, face = "bold"), 
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2), 
+        legend.position = "right")
+#  scale_fill_manual(values = stat.mean)  
+#  scale_y_discrete(limits = rev(levels(stat_scaled$method))) 
+
+
+
+ggplot(stat_scaled, aes(x=method, y=stat.mean, label=stat.mean)) + 
+  geom_point(stat='identity', aes(col=dataset,size=stat.sd))  +
+  scale_color_manual(name="stat.mean", 
+                     labels = c("CTRP1", "CTRP2","GDSC1","GDSC2"), 
+                     values = c("CTRP2"="#FB9701","GDSC1"="#1A7D00","GDSC2"="#072C8F")) + 
+  geom_text(color="white", size=2) +
+  labs(title="Diverging Dot Plot", 
+       subtitle="Normalized mileage from 'mtcars': Dotplot") + 
+  ylim(-2.5, 2.5) +
+  coord_flip()+facet_grid(~ variable+dataset,scales = "free",margins = "dataset")
+
+
+
+
+
+
+numbers <- 1:96
+num_to_well(numbers)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#####################################################################
+## Summarize the stats by group 
+(summ_bydataset <- data[!is.na(as.double(data$value)),] %>%
+  group_by(dataset,variable,method) %>%
+  summarise(stat.mean=mean(as.double(value)),stat.sd=sd(as.double(value)))
+  %>% arrange(desc(dataset, variable,method)))
+
+(summ_overall <- data[!is.na(as.double(data$value)),] %>%
+    group_by(variable,method) %>%
+    summarise(stat.mean=mean(as.double(value)),stat.sd=sd(as.double(value))))
+
+
+summary_sep_clean <- summ_bydataset[summ_bydataset$method
+                                    %in%
+                                      c("rfG","rfinv2","EN","GR","KKNN","KNN",
+                                       "Lasso","pcr","pls","ridgeglm","svm","treebag"),]
+
+library(tidyr)
+
+data_scaled <- data[,c(1,3,4,5)] %>% group_by(dataset,variable) %>% mutate(value_scaled = scale(value))
+
+
+data_wide <- dcast(data[,c(1,3,4,5)], method ~ dataset+variable, value.var="value")
+write.csv(summ_bydataset,"C:/Users/EYC/Dropbox/2020.DrugResponse/Results/stat_bydataset.csv",quote = FALSE)
+write.csv(summ_overall,"C:/Users/EYC/Dropbox/2020.DrugResponse/Results/stat_overall.csv",quote = FALSE)
+######################################################
+# filter and plot circle heat map
+stat_select <- stat[stat$method
+                   %in%
+                    c("rfG","rfinv2","ENglm","GR","KKNN","KNN",
+                      "Lasso","pcr","pls","ridgeglm","svm","treebag"),]
+ 
+data_nona <- data[!is.na(as.double(data$value)),]
+
+summary_reshape <- data_nona[,c(1,3,4,5)]%>% 
+  gather("dataset", key = variable, value = value) %>% 
+  unite(combi, variable, Visit)
+  
+
+summary_reshape <- dcast(melt(summary_sep_clean, id.vars=c("method", "dataset")), method~dataset+variable)
+sum_reshape <-melt(summary_sep_clean, id.vars=c("method", "variable"))
+
+stat_gdsc1 <- summary_sep_clean[summary_sep_clean$dataset=="GDSC1",]
+
+summary_sep_clean$stat.mean <- ifelse(summary_sep_clean$variable%in%c("Stats.RMSE","Stats.MAE"),1-summary_sep_clean$stat.mean,summary_sep_clean$stat.mean)
+
+
+stat_scaled <- summary_sep_clean %>% group_by(dataset,variable) %>% mutate(mean_scaled = scale(stat.mean), sd_scaled=scale(stat.sd))
+
+
+stat_scaled_gdsc1 <- summary_sep_clean[summary_sep_clean$dataset=="GDSC1"&summary_sep_clean$variable%in% c("Stats.RMSE","Stats.MAE"),]
+
+stat_rmse <- stat_scaled[stat_scaled$variable%in% c("Stats.RMSE"),]
+stat_r2 <- stat_scaled[stat_scaled$variable%in% c("Stats.R2"),]
+stat_pcc <- stat_scaled[stat_scaled$variable%in% c("PCC"),]
+
+summary_sep_clean$stat.mean <- ifelse(summary_sep_clean$variable%in%c("Stats.RMSE","Stats.MAE"),1-summary_sep_clean$stat.mean,summary_sep_clean$stat.mean)
+
+
+#data_scale <- data
+#data_scale$scaled_value <- scale(data$value)
+
+#(stat_scaled_sep <- data_scale[!is.na(as.double(data_scale$value)),] %>%
+#    group_by(dataset,variable,method) %>%
+#    summarise(stat.mean=mean(as.double(scaled_value)),stat.sd=sd(as.double(scaled_value)))
+#  %>% arrange(desc(dataset, variable,method)))
+
+#stat_scaled_sep <- stat_scaled_sep[stat_scaled_sep$method
+#                    %in%
+#                      c("rfG","rfinv2","EN","GR","KKNN","KNN",
+#                        "Lasso","pcr","pls","ridgeglm","svm","treebag"),]
+
+#stat_scaled_gdsc1 <- stat_scaled_sep[stat_scaled_sep$dataset=="GDSC1",]
+
+ggplot(stat_scaled, aes(variable, forcats::fct_rev(method), fill = stat.mean, size = stat.sd)) +
+  geom_point(shape = 21, stroke = 0) +
+  geom_hline(yintercept = seq(.5, 4.5, 1), size = .2) +
+  scale_x_discrete(position = "top") +
+  scale_radius(range = c(0, 15)) +
+  scale_fill_gradient(low = "blue", high = "red",breaks = c(0.7, 1, 1.4), labels = c("Bad", "OK", "Great"), ) +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        panel.grid.major = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8)) +
+  guides(size = guide_legend(override.aes = list(fill = NA, color = "black", stroke = .25), 
+                             label.position = "bottom",
+                             title.position = "right", 
+                             order = 1),
+         fill = guide_colorbar(ticks.colour = NA, title.position = "top", order = 2)) +
+  labs(size = "Area = Time Spent", fill = "Score:", x = NULL, y = NULL)#+facet_grid(~ variable,scales = "free")
+######################################################################################
+#  2021-12-09 Use median and 75% quantile
+######################################################################################
+data_nona <- data[!is.na(as.double(data$value)),]
+
+
+data_filter <- data_nona[data_nona$method %in%c("rfG","rfinv2","ENglm","GR","KKNN","KNN",
+                                                    "Lasso","pcr","pls","ridgeglm","svm"),]
+#  group_by(dataset,variable) %>% 
+#  filter(between(value, quantile(value, 0.25), quantile(value, 0.75)))%>%
+#  mutate(value_scaled = scale(value)) 
+
+stat<- data_filter%>%
+  group_by(dataset,variable,method) %>% 
+  summarise(median=median(as.double(value)),Q75range=-(quantile(value, 0.75)-quantile(value, 0.25)))
+
+stat$median <- ifelse(stat$variable%in%c("Stats.RMSE","Stats.MAE"), -stat$median , stat$median)
+
+
+ggplot(stat, aes(x = median, fill = dataset)) +            # Draw two histograms in same plot
+  geom_histogram(alpha = 0.5, position = "identity")
+
+ggplot(stat, aes(x=median, y=Q75range, shape=variable, color=dataset,size=2)) +
+  geom_point()+labs(title="Before scaling")
+  
+
+stat_scaled <- stat %>% group_by(dataset,variable) %>% mutate(median_scaled = scale(median), Q75range_scaled=scale(Q75range))
+
+ggplot(stat_scaled, aes(x=median_scaled, y=Q75range_scaled, shape=variable, color=dataset,size=2)) +
+  geom_point()+labs(title="After scaling")
+
+#Separated by dataset
+ggplot(stat_scaled, aes(variable, forcats::fct_rev(method))) +
+  geom_point(aes( color = median_scaled , size =Q75range_scaled)) +
+    scale_x_discrete(position = "bottom") +
+  scale_radius(range = c(0, 20)) +
+  scale_color_gradient2(low = muted("blue"), mid = "white", high = muted("red"),breaks = c(-1, 0, 1), labels = c("Bad", "OK", "Great"), ) +
+  theme(legend.position = "bottom", 
+        panel.grid.major = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8)) +
+  guides(size = guide_legend(override.aes = list(fill = NA, color = "black", stroke = 0), 
+                             label.position = "bottom",
+                             title.position = "right", 
+                             order = 1),
+         fill = guide_colorbar(ticks.colour = NA, title.position = "top", order = 2)) +
+  labs(size = "Area = Scaled quantile range", fill = "Scaled median performance", x = NULL, y = NULL)+facet_grid(~ dataset,scales = "free")
+
+
+#Combined by dataset
+
+stat_combined<- data_filter%>%
+  group_by(variable,method) %>% 
+  summarise(median=median(as.double(value)),Q75range=-(quantile(value, 0.75)-quantile(value, 0.25)))
+
+stat_combined$median <- ifelse(stat_combined$variable%in%c("Stats.RMSE","Stats.MAE"), -stat_combined$median , stat_combined$median)
+
+stat_combined_scaled <- stat_combined %>% group_by(variable) %>% mutate(median_scaled = scale(median), Q75range_scaled=scale(Q75range))
+
+#Separated by dataset
+ggplot(stat_combined_scaled, aes(variable, forcats::fct_rev(method))) +
+  geom_point(aes( color = median_scaled , size =Q75range_scaled)) +
+  scale_x_discrete(position = "bottom") +
+  scale_radius(range = c(0, 20)) +
+  scale_color_gradient2(low = muted("blue"), mid = "white", high = muted("red"),breaks = c(-1, 0, 1), labels = c("Bad", "OK", "Great") ,) +
+  theme(legend.position = "bottom", 
+        panel.grid.major = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8)) +
+  guides(size = guide_legend(override.aes = list(fill = NA, color = "black", stroke = 0), 
+                             label.position = "bottom",
+                             title.position = "right", 
+                             order = 1),
+         fill = guide_colorbar(ticks.colour = NA, title.position = "top", order = 2)) +
+  labs(size = "Area = Scaled quantile range", fill = "Scaled median performance", x = NULL, y = NULL)
+
+
+ggplot(stat_combined_scaled, aes(variable, forcats::fct_rev(method), fill = stat.mean, size = stat.sd)) +
+  geom_point(shape = 21, stroke = 0,aes( fill = median_scaled , size =Q75range_scaled)) +
+  scale_x_discrete(position = "top") +
+  scale_radius(range = c(0, 20)) +
+  scale_fill_gradient2(low = muted("blue"), mid = "white", high = muted("red"),breaks = c(-1, 0, 1), labels = c("Bad", "OK", "Great"), ) +
+#  theme_minimal() +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8)) +
+  guides(size = guide_legend(override.aes = list(fill = NA, color = "black", stroke = .25), 
+                             label.position = "bottom",
+                             title.position = "right", 
+                             order = 1),
+         fill = guide_colorbar(ticks.colour = NA, title.position = "top", order = 2)) +
+  labs(size = "Area = Time Spent", fill = "Score:", x = NULL, y = NULL)#+facet_grid(~ variable,scales = "free")
