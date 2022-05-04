@@ -8,6 +8,4 @@
 
 ## NN-Sigmoid: use NN method to do evalution.
 
-## NN-Sigmoid: use NN method to do ERBB2 validation. 
-
 ## GR_CV: the main code for leave-one-out-cross-validation.
